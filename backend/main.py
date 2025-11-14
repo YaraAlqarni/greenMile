@@ -28,17 +28,11 @@ app.add_middleware(
 # ===============================
 @app.get("/routes")
 def get_routes(origin: str = Query(...), destination: str = Query(...)):
-    """
-    Fetch up to 3 alternative driving routes between origin and destination.
-    - If distance < 50 km → last-mile mode (traffic-aware)
-    - If distance >= 50 km → intercity mode
-    Returns: list of routes (distance, duration, summary)
-    """
 
     geo_url = "https://maps.googleapis.com/maps/api/geocode/json"
     directions_url = "https://maps.googleapis.com/maps/api/directions/json"
 
-    # --- Get coordinates to estimate air distance ---
+    # === Get Coordinates ===
     o_data = requests.get(geo_url, params={"address": origin, "key": GOOGLE_API_KEY}).json()
     d_data = requests.get(geo_url, params={"address": destination, "key": GOOGLE_API_KEY}).json()
 
@@ -55,23 +49,22 @@ def get_routes(origin: str = Query(...), destination: str = Query(...)):
     except Exception:
         distance_km = 0
 
-    # --- Mode detection ---
-    if distance_km > 50:
-        mode = "intercity"
-    else:
-        mode = "lastmile"
+    # === Trip Mode ===
+    mode = "intercity" if distance_km > 50 else "lastmile"
 
     all_routes = []
 
-    # --- Try multiple configurations to encourage diverse routes ---
+    # Strategies to force Google to give different routes
     strategies = [
-        {"avoid": None, "traffic_model": "best_guess"},
-        {"avoid": "tolls", "traffic_model": "pessimistic"},
+        {"avoid": None,       "traffic_model": "best_guess"},
+        {"avoid": "tolls",    "traffic_model": "pessimistic"},
         {"avoid": "highways", "traffic_model": "optimistic"},
-        {"avoid": "ferries", "traffic_model": "best_guess"},
+        {"avoid": "ferries",  "traffic_model": "best_guess"},
     ]
 
+    # === Fetch Routes ===
     for s in strategies:
+
         params = {
             "origin": origin,
             "destination": destination,
@@ -81,36 +74,40 @@ def get_routes(origin: str = Query(...), destination: str = Query(...)):
             "key": GOOGLE_API_KEY,
         }
 
-        # Use traffic model only for short/urban trips
         if mode == "lastmile":
             params["departure_time"] = "now"
             params["traffic_model"] = s["traffic_model"]
+
         if s["avoid"]:
             params["avoid"] = s["avoid"]
 
-        # Send request to Google
-        r = requests.get(directions_url, params=params)
-        data = r.json()
+        response = requests.get(directions_url, params=params)
+        data = response.json()
 
         print(f"Google returned {len(data.get('routes', []))} routes using {s}")
 
         if data.get("status") != "OK":
-            print("⚠️ Google Directions API error:", data.get("status"))
+            print("⚠️ Directions API error:", data.get("status"))
             continue
 
-        # Extract route data
+        # Extract each returned route
         for route in data["routes"]:
             leg = route["legs"][0]
             dist_text = leg["distance"]["text"]
             dur_text = leg["duration"]["text"]
             summary = route.get("summary", "Unnamed Route")
+            polyline = route.get("overview_polyline", {}).get("points", "")
 
             # Avoid duplicates
-            if not any(x["distance"] == dist_text and x["duration"] == dur_text for x in all_routes):
+            if not any(
+                r["distance"] == dist_text and r["duration"] == dur_text
+                for r in all_routes
+            ):
                 all_routes.append({
                     "summary": summary,
                     "distance": dist_text,
-                    "duration": dur_text
+                    "duration": dur_text,
+                    "polyline": polyline
                 })
 
             if len(all_routes) >= 3:
@@ -119,7 +116,7 @@ def get_routes(origin: str = Query(...), destination: str = Query(...)):
         if len(all_routes) >= 3:
             break
 
-    # --- Return results ---
+    # === Return Final Result ===
     if not all_routes:
         return {"error": "No routes found"}
 

@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { GoogleMap, LoadScript, DirectionsRenderer } from "@react-google-maps/api";
 import "./CreateTrip.css";
+import MapRoutes from "./MapRoutes";  // <-- IMPORTANT
 
 export default function CreateTrip() {
   const [vehicleType, setVehicleType] = useState("");
@@ -9,53 +9,30 @@ export default function CreateTrip() {
   const [origin, setOrigin] = useState("");
   const [destination, setDestination] = useState("");
   const [routes, setRoutes] = useState([]);
-  const [directions, setDirections] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
   const years = Array.from({ length: 25 }, (_, i) => 2025 - i);
-  const googleKey = process.env.REACT_APP_GOOGLE_MAPS_API_KEY;
 
   async function handleSubmit(e) {
     e.preventDefault();
     setLoading(true);
     setError("");
     setRoutes([]);
-    setDirections([]);
 
     try {
       const url = `http://127.0.0.1:8000/routes?origin=${encodeURIComponent(
         origin
       )}&destination=${encodeURIComponent(destination)}`;
+
       const res = await fetch(url);
       const data = await res.json();
 
-      if (!res.ok || data.error) throw new Error(data.error || "Unable to fetch routes");
-
-      setRoutes(data.routes || []);
-
-      // Load directions directly from Google Maps for drawing
-      const directionsService = new window.google.maps.DirectionsService();
-      const colors = ["#2ecc71", "#3498db", "#e74c3c"]; // green, blue, red
-      const routeData = [];
-
-      for (let i = 0; i < data.routes.length; i++) {
-        const result = await directionsService.route({
-          origin,
-          destination,
-          travelMode: window.google.maps.TravelMode.DRIVING,
-          provideRouteAlternatives: true,
-        });
-
-        if (result.routes[i]) {
-          routeData.push({
-            route: result.routes[i],
-            color: colors[i % colors.length],
-          });
-        }
+      if (!res.ok || data.error) {
+        throw new Error(data.error || "Unable to fetch routes");
       }
 
-      setDirections(routeData);
+      setRoutes(data.routes || []);
     } catch (err) {
       console.error("Error:", err);
       setError(err.message);
@@ -165,30 +142,15 @@ export default function CreateTrip() {
         )}
       </div>
 
-      {/* Right Side Map */}
+      {/* Right Side: MAP */}
       <div className="map-placeholder">
-        <LoadScript googleMapsApiKey={googleKey}>
-          <GoogleMap
-            mapContainerStyle={{ width: "100%", height: "100%" }}
-            center={{ lat: 21.4858, lng: 39.1925 }} // Centered around Jeddah
-            zoom={12}
-          >
-            {directions.map((dir, i) => (
-              <DirectionsRenderer
-                key={i}
-                directions={{ routes: [dir.route] }}
-                options={{
-                  polylineOptions: {
-                    strokeColor: dir.color,
-                    strokeWeight: 5,
-                    opacity: 0.8,
-                  },
-                  suppressMarkers: false,
-                }}
-              />
-            ))}
-          </GoogleMap>
-        </LoadScript>
+        <div className="map-card">
+          {routes.length > 0 ? (
+            <MapRoutes polylines={routes.map((r) => r.polyline)} />
+          ) : (
+            "🗺️ Map will be added later"
+          )}
+        </div>
       </div>
     </div>
   );
